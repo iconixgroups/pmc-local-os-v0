@@ -11,6 +11,7 @@ import TeamsManagement from '../components/teams/TeamsManagement';
 import InvoicesManagement from '../components/invoices/InvoicesManagement';
 import InspectionsManagement from '../components/inspections/InspectionsManagement';
 import ReportsPage from '../components/reports/ReportsPage';
+import Dashboard from '../components/dashboard/Dashboard';
 import { ToastProvider } from '../components/ui/Toast';
 
 type Page = 'dashboard' | 'projects' | 'teams' | 'invoices' | 'inspections' | 'reports';
@@ -42,92 +43,7 @@ function AppContent() {
   const renderCurrentPage = () => {
     switch (currentPage) {
       case 'dashboard':
-        return (
-          <div className="min-h-screen bg-gray-50">
-            <div className="bg-white shadow">
-              <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-                <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-                <p className="mt-2 text-sm text-gray-600">
-                  Overview of your project management activities
-                </p>
-              </div>
-            </div>
-            <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-              <div className="px-4 py-6 sm:px-0">
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                  {/* Quick Stats */}
-                  <div className="bg-white overflow-hidden shadow rounded-lg">
-                    <div className="p-6">
-                      <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Stats</h3>
-                      <div className="space-y-4">
-                        <div className="flex justify-between">
-                          <span className="text-sm font-medium text-gray-500">Active Projects</span>
-                          <span className="text-sm font-semibold text-gray-900">-</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm font-medium text-gray-500">Total Revenue</span>
-                          <span className="text-sm font-semibold text-gray-900">-</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm font-medium text-gray-500">Pending Invoices</span>
-                          <span className="text-sm font-semibold text-gray-900">-</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Recent Activity */}
-                  <div className="bg-white overflow-hidden shadow rounded-lg">
-                    <div className="p-6">
-                      <h3 className="text-lg font-medium text-gray-900 mb-4">Recent Activity</h3>
-                      <div className="space-y-4">
-                        <div className="flex items-center space-x-3">
-                          <div className="flex-shrink-0">
-                            <div className="h-2 w-2 bg-blue-500 rounded-full"></div>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-900">System initialized successfully</p>
-                            <p className="text-xs text-gray-500">Just now</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Welcome Message */}
-                <div className="mt-6 bg-white overflow-hidden shadow rounded-lg">
-                  <div className="p-6">
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">Welcome to PMC Project Management System</h3>
-                    <p className="text-sm text-gray-600 mb-4">
-                      Your local-first architecture and project management solution. Navigate using the menu above to manage your projects, teams, and more.
-                    </p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <button
-                        onClick={() => handleNavigate('projects')}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center justify-center space-x-2"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                        </svg>
-                        <span>View Projects</span>
-                      </button>
-                      <button
-                        onClick={() => handleNavigate('teams')}
-                        className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center justify-center space-x-2"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                        </svg>
-                        <span>Manage Teams</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
+        return <Dashboard />;
       case 'projects':
         return (
           <div className="min-h-screen bg-gray-50">
