@@ -11,6 +11,7 @@ import TeamsManagement from '../components/teams/TeamsManagement';
 import InvoicesManagement from '../components/invoices/InvoicesManagement';
 import InspectionsManagement from '../components/inspections/InspectionsManagement';
 import ReportsPage from '../components/reports/ReportsPage';
+import { ToastProvider } from '../components/ui/Toast';
 
 type Page = 'dashboard' | 'projects' | 'teams' | 'invoices' | 'inspections' | 'reports';
 
@@ -250,7 +251,9 @@ function AppContent() {
 export default function Home() {
   return (
     <AuthProvider>
-      <AppContent />
+      <ToastProvider>
+        <AppContent />
+      </ToastProvider>
     </AuthProvider>
   );
 }

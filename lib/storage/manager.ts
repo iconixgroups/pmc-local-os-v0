@@ -264,6 +264,156 @@ export class LocalStorageManager {
     return newInvoice;
   }
 
+  async updateInvoice(projectId: string, invoiceId: string, updates: Partial<Invoice>): Promise<Invoice | null> {
+    const project = await this.getProjectById(projectId);
+    if (!project) return null;
+
+    const invoiceIndex = project.invoices.findIndex(inv => inv.id === invoiceId);
+    if (invoiceIndex === -1) return null;
+
+    project.invoices[invoiceIndex] = {
+      ...project.invoices[invoiceIndex],
+      ...updates,
+      updatedAt: new Date(),
+    };
+
+    await this.updateProject(project.id, project);
+    return project.invoices[invoiceIndex];
+  }
+
+  async deleteInvoice(projectId: string, invoiceId: string): Promise<boolean> {
+    const project = await this.getProjectById(projectId);
+    if (!project) return false;
+
+    const originalLength = project.invoices.length;
+    project.invoices = project.invoices.filter(inv => inv.id !== invoiceId);
+
+    if (project.invoices.length === originalLength) return false;
+
+    await this.updateProject(project.id, project);
+    return true;
+  }
+
+  async getInvoiceById(projectId: string, invoiceId: string): Promise<Invoice | null> {
+    const project = await this.getProjectById(projectId);
+    if (!project) return null;
+    return project.invoices.find(inv => inv.id === invoiceId) || null;
+  }
+
+  // Inspection Management
+  async createInspection(inspection: Omit<Inspection, 'id' | 'createdAt' | 'updatedAt'>): Promise<Inspection> {
+    const newInspection: Inspection = {
+      ...inspection,
+      id: this.generateId(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const projects = await this.getProjects();
+    for (const project of projects) {
+      const milestoneIndex = project.milestones.findIndex(m => m.id === inspection.milestoneId);
+      if (milestoneIndex !== -1) {
+        project.milestones[milestoneIndex].inspections?.push(newInspection);
+        await this.updateProject(project.id, project);
+        return newInspection;
+      }
+    }
+    
+    // If no milestone, store in project-level inspections array (add if doesn't exist)
+    const targetProject = await this.getProjectById(inspection.projectId);
+    if (targetProject) {
+      if (!targetProject.inspections) {
+        targetProject.inspections = [];
+      }
+      targetProject.inspections.push(newInspection);
+      await this.updateProject(targetProject.id, targetProject);
+    }
+    
+    return newInspection;
+  }
+
+  async updateInspection(inspectionId: string, updates: Partial<Inspection>): Promise<Inspection | null> {
+    const projects = await this.getProjects();
+    for (const project of projects) {
+      // Check project-level inspections
+      if (project.inspections) {
+        const inspectionIndex = project.inspections.findIndex(i => i.id === inspectionId);
+        if (inspectionIndex !== -1) {
+          project.inspections[inspectionIndex] = {
+            ...project.inspections[inspectionIndex],
+            ...updates,
+            updatedAt: new Date(),
+          };
+          await this.updateProject(project.id, project);
+          return project.inspections[inspectionIndex];
+        }
+      }
+      
+      // Check milestone-level inspections
+      for (const milestone of project.milestones) {
+        if (milestone.inspections) {
+          const inspectionIndex = milestone.inspections.findIndex(i => i.id === inspectionId);
+          if (inspectionIndex !== -1) {
+            milestone.inspections[inspectionIndex] = {
+              ...milestone.inspections[inspectionIndex],
+              ...updates,
+              updatedAt: new Date(),
+            };
+            await this.updateProject(project.id, project);
+            return milestone.inspections[inspectionIndex];
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  async deleteInspection(inspectionId: string): Promise<boolean> {
+    const projects = await this.getProjects();
+    for (const project of projects) {
+      // Check project-level inspections
+      if (project.inspections) {
+        const originalLength = project.inspections.length;
+        project.inspections = project.inspections.filter(i => i.id !== inspectionId);
+        if (project.inspections.length !== originalLength) {
+          await this.updateProject(project.id, project);
+          return true;
+        }
+      }
+      
+      // Check milestone-level inspections
+      for (const milestone of project.milestones) {
+        if (milestone.inspections) {
+          const originalLength = milestone.inspections.length;
+          milestone.inspections = milestone.inspections.filter(i => i.id !== inspectionId);
+          if (milestone.inspections.length !== originalLength) {
+            await this.updateProject(project.id, project);
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  async getAllInspections(): Promise<Inspection[]> {
+    const projects = await this.getProjects();
+    const inspections: Inspection[] = [];
+    
+    for (const project of projects) {
+      if (project.inspections) {
+        inspections.push(...project.inspections);
+      }
+      for (const milestone of project.milestones) {
+        if (milestone.inspections) {
+          inspections.push(...milestone.inspections);
+        }
+      }
+    }
+    
+    return inspections;
+  }
+
   // Dashboard Data
   async getDashboardData(): Promise<{
     totalProjects: number;

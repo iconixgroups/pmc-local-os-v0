@@ -1,23 +1,54 @@
-// Invoices Management Component for PMC System
+// Invoices Management Component for PMC System with Full CRUD
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { useAuth, usePermissions } from '../../lib/auth/context';
+import { useAuth } from '../../lib/auth/context';
 import { localStorageManager } from '../../lib/storage/manager';
-import { Invoice, Project } from '../../lib/types';
+import { Invoice, Project, InvoiceType, InvoiceStatus } from '../../lib/types';
+import Modal, { ConfirmDialog } from '../ui/Modal';
+import { useToast } from '../ui/Toast';
 
 interface InvoiceWithProject extends Invoice {
+  projectId: string;
   projectName?: string;
 }
 
+const INVOICE_TYPES: { value: InvoiceType; label: string }[] = [
+  { value: 'pmc_to_client', label: 'PMC to Client' },
+  { value: 'pmc_to_contractor', label: 'PMC to Contractor' }
+];
+
+const INVOICE_STATUSES: { value: InvoiceStatus; label: string }[] = [
+  { value: 'draft', label: 'Draft' },
+  { value: 'issued', label: 'Issued' },
+  { value: 'paid', label: 'Paid' },
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'cancelled', label: 'Cancelled' }
+];
+
 export default function InvoicesManagement() {
-  const { canViewFinancials, canManageUsers } = usePermissions();
+  const { canAccess } = useAuth();
+  const { showToast } = useToast();
   const [invoices, setInvoices] = useState<InvoiceWithProject[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceWithProject | null>(null);
+  const [formData, setFormData] = useState({
+    invoiceNumber: '',
+    type: 'pmc_to_client' as InvoiceType,
+    amount: 0,
+    description: '',
+    dueDate: new Date().toISOString().split('T')[0],
+    status: 'draft' as InvoiceStatus,
+    projectId: ''
+  });
+
+  const canManageInvoices = canAccess('invoices', 'create') || canAccess('invoices', 'edit');
 
   useEffect(() => {
     loadData();
@@ -26,21 +57,25 @@ export default function InvoicesManagement() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [projectsData, invoicesData] = await Promise.all([
-        localStorageManager.getProjects(),
+      const [projectsData] = await Promise.all([
         localStorageManager.getProjects()
       ]);
       setProjects(projectsData);
       
-      const allInvoices = projectsData.flatMap(project => 
-        project.invoices.map(invoice => ({
-          ...invoice,
-          projectName: project.name
-        }))
-      );
+      const allInvoices: InvoiceWithProject[] = [];
+      projectsData.forEach(project => {
+        project.invoices.forEach(invoice => {
+          allInvoices.push({
+            ...invoice,
+            projectId: project.id,
+            projectName: project.name
+          });
+        });
+      });
       setInvoices(allInvoices);
     } catch (err) {
       console.error('Failed to load data:', err);
+      showToast('error', 'Failed to load invoices');
     } finally {
       setLoading(false);
     }
@@ -65,19 +100,97 @@ export default function InvoicesManagement() {
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
-  const getTypeLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      pmc_to_client: 'PMC to Client',
-      pmc_to_contractor: 'PMC to Contractor'
-    };
-    return labels[type] || type;
-  };
-
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD'
     }).format(amount);
+  };
+
+  const resetForm = () => {
+    setFormData({
+      invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+      type: 'pmc_to_client',
+      amount: 0,
+      description: '',
+      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      status: 'draft',
+      projectId: projects[0]?.id || ''
+    });
+  };
+
+  const handleCreate = async () => {
+    if (!formData.projectId) {
+      showToast('error', 'Please select a project');
+      return;
+    }
+
+    try {
+      await localStorageManager.createInvoice({
+        ...formData,
+        dueDate: new Date(formData.dueDate),
+        issueDate: new Date(),
+        paidDate: undefined,
+        paymentMethod: undefined,
+        documentPath: undefined,
+        milestoneId: undefined,
+        billCertificationId: undefined
+      });
+      showToast('success', 'Invoice created successfully');
+      setShowCreateModal(false);
+      loadData();
+    } catch (error) {
+      showToast('error', 'Failed to create invoice');
+    }
+  };
+
+  const handleEdit = async () => {
+    if (!selectedInvoice) return;
+
+    try {
+      await localStorageManager.updateInvoice(selectedInvoice.projectId, selectedInvoice.id, {
+        ...formData,
+        dueDate: new Date(formData.dueDate)
+      });
+      showToast('success', 'Invoice updated successfully');
+      setShowEditModal(false);
+      loadData();
+    } catch (error) {
+      showToast('error', 'Failed to update invoice');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedInvoice) return;
+
+    try {
+      await localStorageManager.deleteInvoice(selectedInvoice.projectId, selectedInvoice.id);
+      showToast('success', 'Invoice deleted successfully');
+      setShowDeleteDialog(false);
+      setSelectedInvoice(null);
+      loadData();
+    } catch (error) {
+      showToast('error', 'Failed to delete invoice');
+    }
+  };
+
+  const openEditModal = (invoice: InvoiceWithProject) => {
+    setSelectedInvoice(invoice);
+    setFormData({
+      invoiceNumber: invoice.invoiceNumber,
+      type: invoice.type,
+      amount: invoice.amount,
+      description: invoice.description,
+      dueDate: new Date(invoice.dueDate).toISOString().split('T')[0],
+      status: invoice.status,
+      projectId: invoice.projectId
+    });
+    setShowEditModal(true);
+  };
+
+  const openDeleteDialog = (invoice: InvoiceWithProject) => {
+    setSelectedInvoice(invoice);
+    setShowDeleteDialog(true);
   };
 
   const calculateTotals = () => {
@@ -88,10 +201,7 @@ export default function InvoicesManagement() {
     const pending = filteredInvoices
       .filter(inv => inv.status === 'issued')
       .reduce((sum, inv) => sum + inv.amount, 0);
-    const overdue = filteredInvoices
-      .filter(inv => inv.status === 'overdue')
-      .reduce((sum, inv) => sum + inv.amount, 0);
-    return { total, paid, pending, overdue };
+    return { total, paid, pending };
   };
 
   const totals = calculateTotals();
@@ -112,10 +222,13 @@ export default function InvoicesManagement() {
           <h2 className="text-2xl font-bold text-gray-900">Invoice Management</h2>
           <p className="text-gray-600 mt-1">Generate and manage project invoices</p>
         </div>
-        {canViewFinancials && (
+        {canManageInvoices && (
           <button 
-            onClick={() => setShowCreateModal(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center space-x-2"
+            onClick={() => {
+              resetForm();
+              setShowCreateModal(true);
+            }}
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center space-x-2 transition-colors"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
@@ -191,16 +304,16 @@ export default function InvoicesManagement() {
           <div className="p-5">
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-red-500 rounded-md flex items-center justify-center">
+                <div className="w-8 h-8 bg-indigo-500 rounded-md flex items-center justify-center">
                   <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
                 </div>
               </div>
               <div className="ml-5 w-0 flex-1">
                 <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">Overdue</dt>
-                  <dd className="text-lg font-medium text-red-600">{formatCurrency(totals.overdue)}</dd>
+                  <dt className="text-sm font-medium text-gray-500 truncate">Count</dt>
+                  <dd className="text-lg font-medium text-gray-900">{filteredInvoices.length}</dd>
                 </dl>
               </div>
             </div>
@@ -226,11 +339,9 @@ export default function InvoicesManagement() {
             className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
           >
             <option value="all">All Status</option>
-            <option value="draft">Draft</option>
-            <option value="issued">Issued</option>
-            <option value="paid">Paid</option>
-            <option value="overdue">Overdue</option>
-            <option value="cancelled">Cancelled</option>
+            {INVOICE_STATUSES.map(status => (
+              <option key={status.value} value={status.value}>{status.label}</option>
+            ))}
           </select>
         </div>
       </div>
@@ -251,75 +362,303 @@ export default function InvoicesManagement() {
             </p>
           </div>
         ) : (
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Invoice #
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Project
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Type
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Due Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredInvoices.map((invoice) => (
-                <tr key={invoice.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm font-medium text-blue-600">{invoice.invoiceNumber}</span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm text-gray-900">{invoice.projectName}</span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm text-gray-500">{getTypeLabel(invoice.type)}</span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm font-medium text-gray-900">{formatCurrency(invoice.amount)}</span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm text-gray-500">
-                      {new Date(invoice.dueDate).toLocaleDateString()}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(invoice.status)}`}>
-                      {invoice.status.toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex space-x-2">
-                      <button className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                        View
-                      </button>
-                      {canViewFinancials && (
-                        <button className="text-gray-600 hover:text-gray-800 text-sm font-medium">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice #</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Due Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredInvoices.map((invoice) => (
+                  <tr key={invoice.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm font-medium text-blue-600">{invoice.invoiceNumber}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-gray-900">{invoice.projectName}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-gray-500">
+                        {INVOICE_TYPES.find(t => t.value === invoice.type)?.label}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm font-medium text-gray-900">{formatCurrency(invoice.amount)}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-gray-500">
+                        {new Date(invoice.dueDate).toLocaleDateString()}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(invoice.status)}`}>
+                        {invoice.status.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => openEditModal(invoice)}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        >
                           Edit
                         </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                        {canManageInvoices && (
+                          <button
+                            onClick={() => openDeleteDialog(invoice)}
+                            className="text-red-600 hover:text-red-800 text-sm font-medium"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
+
+      {/* Create Modal */}
+      <Modal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="Create New Invoice"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
+              <input
+                type="text"
+                value={formData.invoiceNumber}
+                onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Project</label>
+              <select
+                value={formData.projectId}
+                onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">Select Project</option>
+                {projects.map(project => (
+                  <option key={project.id} value={project.id}>{project.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+              <select
+                value={formData.type}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value as InvoiceType })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                {INVOICE_TYPES.map(type => (
+                  <option key={type.value} value={type.value}>{type.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Amount ($)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.amount}
+                onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+              <input
+                type="date"
+                value={formData.dueDate}
+                onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value as InvoiceStatus })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                {INVOICE_STATUSES.map(status => (
+                  <option key={status.value} value={status.value}>{status.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              onClick={() => setShowCreateModal(false)}
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCreate}
+              className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Create Invoice
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Modal */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        title="Edit Invoice"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
+              <input
+                type="text"
+                value={formData.invoiceNumber}
+                onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Project</label>
+              <select
+                value={formData.projectId}
+                onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">Select Project</option>
+                {projects.map(project => (
+                  <option key={project.id} value={project.id}>{project.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+              <select
+                value={formData.type}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value as InvoiceType })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                {INVOICE_TYPES.map(type => (
+                  <option key={type.value} value={type.value}>{type.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Amount ($)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.amount}
+                onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+              <input
+                type="date"
+                value={formData.dueDate}
+                onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value as InvoiceStatus })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                {INVOICE_STATUSES.map(status => (
+                  <option key={status.value} value={status.value}>{status.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              onClick={() => setShowEditModal(false)}
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleEdit}
+              className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showDeleteDialog}
+        onClose={() => setShowDeleteDialog(false)}
+        onConfirm={handleDelete}
+        title="Delete Invoice"
+        message={`Are you sure you want to delete invoice "${selectedInvoice?.invoiceNumber}"? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+      />
     </div>
   );
 }

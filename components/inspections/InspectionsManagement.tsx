@@ -1,24 +1,57 @@
-// Inspections Management Component for PMC System
+// Inspections Management Component for PMC System with Full CRUD
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { useAuth, usePermissions } from '../../lib/auth/context';
+import { useAuth } from '../../lib/auth/context';
 import { localStorageManager } from '../../lib/storage/manager';
-import { Inspection, Project } from '../../lib/types';
+import { Inspection, Project, InspectionStatus, ComplianceStatus } from '../../lib/types';
+import Modal, { ConfirmDialog } from '../ui/Modal';
+import { useToast } from '../ui/Toast';
 
 interface InspectionWithProject extends Inspection {
+  projectId: string;
   projectName?: string;
+  milestoneId?: string;
 }
 
+const INSPECTION_STATUSES: { value: InspectionStatus; label: string }[] = [
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' }
+];
+
+const COMPLIANCE_STATUSES: { value: ComplianceStatus; label: string }[] = [
+  { value: 'compliant', label: 'Compliant' },
+  { value: 'partially_compliant', label: 'Partially Compliant' },
+  { value: 'non_compliant', label: 'Non-Compliant' },
+  { value: 'pending_review', label: 'Pending Review' }
+];
+
 export default function InspectionsManagement() {
-  const { user } = useAuth();
-  const { hasPermission } = usePermissions();
+  const { canAccess } = useAuth();
+  const { showToast } = useToast();
   const [inspections, setInspections] = useState<InspectionWithProject[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [selectedInspection, setSelectedInspection] = useState<InspectionWithProject | null>(null);
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    projectId: '',
+    inspectionDate: new Date().toISOString().split('T')[0],
+    status: 'scheduled' as InspectionStatus,
+    complianceStatus: 'pending_review' as ComplianceStatus,
+    observations: '',
+    recommendations: ''
+  });
+
+  const canManageInspections = canAccess('inspections', 'create') || canAccess('inspections', 'edit');
 
   useEffect(() => {
     loadData();
@@ -27,22 +60,40 @@ export default function InspectionsManagement() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const projectsData = await localStorageManager.getProjects();
+      const [projectsData] = await Promise.all([
+        localStorageManager.getProjects()
+      ]);
       setProjects(projectsData);
       
       const allInspections: InspectionWithProject[] = [];
       projectsData.forEach(project => {
-        project.milestones.forEach(milestone => {
-          // Check for inspections in milestones if implemented
-        });
+        // Check project-level inspections
+        if (project.inspections) {
+          project.inspections.forEach(inspection => {
+            allInspections.push({
+              ...inspection,
+              projectId: project.id,
+              projectName: project.name
+            });
+          });
+        }
       });
       setInspections(allInspections);
     } catch (err) {
       console.error('Failed to load data:', err);
+      showToast('error', 'Failed to load inspections');
     } finally {
       setLoading(false);
     }
   };
+
+  const filteredInspections = inspections.filter(inspection => {
+    const matchesSearch = inspection.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         inspection.projectName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         inspection.observations.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || inspection.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
@@ -72,66 +123,104 @@ export default function InspectionsManagement() {
     });
   };
 
-  const getProjectById = (projectId: string): string => {
-    const project = projects.find(p => p.id === projectId);
-    return project?.name || 'Unknown Project';
-  };
-
-  const canCreateInspections = hasPermission('inspections', 'create');
-
-  // Sample inspection data for demo
-  const sampleInspections: InspectionWithProject[] = [
-    {
-      id: 'insp-1',
-      projectId: 'sample',
-      title: 'Foundation Inspection',
-      description: 'Check foundation work for compliance with blueprints',
-      inspectorId: 'user-1',
-      inspectionDate: new Date('2025-01-20'),
-      status: 'completed',
-      complianceStatus: 'compliant',
-      observations: 'Foundation meets all specifications',
-      recommendations: 'Proceed to next phase',
-      photos: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      projectName: 'Downtown Office Complex'
-    },
-    {
-      id: 'insp-2',
-      projectId: 'sample',
-      title: 'Structural Framing Inspection',
-      description: 'Inspect steel framing installation',
-      inspectorId: 'user-1',
-      inspectionDate: new Date('2025-01-25'),
+  const resetForm = () => {
+    setFormData({
+      title: '',
+      description: '',
+      projectId: projects[0]?.id || '',
+      inspectionDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       status: 'scheduled',
       complianceStatus: 'pending_review',
       observations: '',
-      recommendations: '',
-      photos: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      projectName: 'Downtown Office Complex'
-    },
-    {
-      id: 'insp-3',
-      projectId: 'sample',
-      title: 'Electrical Rough-In Inspection',
-      description: 'Verify electrical wiring meets code requirements',
-      inspectorId: 'user-1',
-      inspectionDate: new Date('2025-01-15'),
-      status: 'completed',
-      complianceStatus: 'partially_compliant',
-      observations: 'Minor corrections needed in third floor',
-      recommendations: 'Address noted issues before drywall',
-      photos: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      projectName: 'Riverside Apartments'
-    }
-  ];
+      recommendations: ''
+    });
+  };
 
-  const displayInspections = inspections.length > 0 ? inspections : sampleInspections;
+  const handleCreate = async () => {
+    if (!formData.projectId) {
+      showToast('error', 'Please select a project');
+      return;
+    }
+
+    try {
+      await localStorageManager.createInspection({
+        ...formData,
+        inspectionDate: new Date(formData.inspectionDate),
+        inspectorId: 'current-user',
+        milestoneId: undefined,
+        taskId: undefined,
+        photos: [],
+        reportPath: undefined,
+        nextInspectionDate: undefined
+      });
+      showToast('success', 'Inspection scheduled successfully');
+      setShowCreateModal(false);
+      loadData();
+    } catch (error) {
+      showToast('error', 'Failed to schedule inspection');
+    }
+  };
+
+  const handleEdit = async () => {
+    if (!selectedInspection) return;
+
+    try {
+      await localStorageManager.updateInspection(selectedInspection.id, {
+        ...formData,
+        inspectionDate: new Date(formData.inspectionDate)
+      });
+      showToast('success', 'Inspection updated successfully');
+      setShowEditModal(false);
+      loadData();
+    } catch (error) {
+      showToast('error', 'Failed to update inspection');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedInspection) return;
+
+    try {
+      await localStorageManager.deleteInspection(selectedInspection.id);
+      showToast('success', 'Inspection deleted successfully');
+      setShowDeleteDialog(false);
+      setSelectedInspection(null);
+      loadData();
+    } catch (error) {
+      showToast('error', 'Failed to delete inspection');
+    }
+  };
+
+  const openEditModal = (inspection: InspectionWithProject) => {
+    setSelectedInspection(inspection);
+    setFormData({
+      title: inspection.title,
+      description: inspection.description,
+      projectId: inspection.projectId,
+      inspectionDate: new Date(inspection.inspectionDate).toISOString().split('T')[0],
+      status: inspection.status,
+      complianceStatus: inspection.complianceStatus,
+      observations: inspection.observations,
+      recommendations: inspection.recommendations
+    });
+    setShowEditModal(true);
+  };
+
+  const openDeleteDialog = (inspection: InspectionWithProject) => {
+    setSelectedInspection(inspection);
+    setShowDeleteDialog(true);
+  };
+
+  const calculateStats = () => {
+    return {
+      total: filteredInspections.length,
+      scheduled: filteredInspections.filter(i => i.status === 'scheduled').length,
+      completed: filteredInspections.filter(i => i.status === 'completed').length,
+      compliant: filteredInspections.filter(i => i.complianceStatus === 'compliant').length
+    };
+  };
+
+  const stats = calculateStats();
 
   if (loading) {
     return (
@@ -149,10 +238,13 @@ export default function InspectionsManagement() {
           <h2 className="text-2xl font-bold text-gray-900">Inspection Management</h2>
           <p className="text-gray-600 mt-1">Schedule and track site inspections</p>
         </div>
-        {canCreateInspections && (
+        {canManageInspections && (
           <button 
-            onClick={() => setShowCreateModal(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center space-x-2"
+            onClick={() => {
+              resetForm();
+              setShowCreateModal(true);
+            }}
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center space-x-2 transition-colors"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
@@ -176,10 +268,8 @@ export default function InspectionsManagement() {
               </div>
               <div className="ml-5 w-0 flex-1">
                 <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">Scheduled</dt>
-                  <dd className="text-lg font-medium text-gray-900">
-                    {displayInspections.filter(i => i.status === 'scheduled').length}
-                  </dd>
+                  <dt className="text-sm font-medium text-gray-500 truncate">Total</dt>
+                  <dd className="text-lg font-medium text-gray-900">{stats.total}</dd>
                 </dl>
               </div>
             </div>
@@ -198,10 +288,8 @@ export default function InspectionsManagement() {
               </div>
               <div className="ml-5 w-0 flex-1">
                 <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">In Progress</dt>
-                  <dd className="text-lg font-medium text-yellow-600">
-                    {displayInspections.filter(i => i.status === 'in_progress').length}
-                  </dd>
+                  <dt className="text-sm font-medium text-gray-500 truncate">Scheduled</dt>
+                  <dd className="text-lg font-medium text-yellow-600">{stats.scheduled}</dd>
                 </dl>
               </div>
             </div>
@@ -221,9 +309,7 @@ export default function InspectionsManagement() {
               <div className="ml-5 w-0 flex-1">
                 <dl>
                   <dt className="text-sm font-medium text-gray-500 truncate">Completed</dt>
-                  <dd className="text-lg font-medium text-green-600">
-                    {displayInspections.filter(i => i.status === 'completed').length}
-                  </dd>
+                  <dd className="text-lg font-medium text-green-600">{stats.completed}</dd>
                 </dl>
               </div>
             </div>
@@ -234,18 +320,16 @@ export default function InspectionsManagement() {
           <div className="p-5">
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-red-500 rounded-md flex items-center justify-center">
+                <div className="w-8 h-8 bg-indigo-500 rounded-md flex items-center justify-center">
                   <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   </svg>
                 </div>
               </div>
               <div className="ml-5 w-0 flex-1">
                 <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">Non-Compliant</dt>
-                  <dd className="text-lg font-medium text-red-600">
-                    {displayInspections.filter(i => i.complianceStatus === 'non_compliant').length}
-                  </dd>
+                  <dt className="text-sm font-medium text-gray-500 truncate">Compliant</dt>
+                  <dd className="text-lg font-medium text-gray-900">{stats.compliant}</dd>
                 </dl>
               </div>
             </div>
@@ -271,16 +355,15 @@ export default function InspectionsManagement() {
             className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
           >
             <option value="all">All Status</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="in_progress">In Progress</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
+            {INSPECTION_STATUSES.map(status => (
+              <option key={status.value} value={status.value}>{status.label}</option>
+            ))}
           </select>
         </div>
       </div>
 
       {/* Inspections List */}
-      {displayInspections.length === 0 ? (
+      {filteredInspections.length === 0 ? (
         <div className="bg-white shadow rounded-lg text-center py-12">
           <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
@@ -295,7 +378,7 @@ export default function InspectionsManagement() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6">
-          {displayInspections.map((inspection) => (
+          {filteredInspections.map((inspection) => (
             <div
               key={inspection.id}
               className="bg-white shadow rounded-lg hover:shadow-lg transition-shadow"
@@ -320,7 +403,7 @@ export default function InspectionsManagement() {
                     </div>
                     <div>
                       <h3 className="text-lg font-medium text-gray-900">{inspection.title}</h3>
-                      <p className="text-sm text-gray-500">{inspection.projectName || getProjectById(inspection.projectId)}</p>
+                      <p className="text-sm text-gray-500">{inspection.projectName}</p>
                     </div>
                   </div>
                   <div className="flex items-center space-x-3">
@@ -342,12 +425,6 @@ export default function InspectionsManagement() {
                     <span className="text-gray-500">Inspection Date</span>
                     <p className="font-medium text-gray-900">{formatDate(inspection.inspectionDate)}</p>
                   </div>
-                  {inspection.nextInspectionDate && (
-                    <div>
-                      <span className="text-gray-500">Next Inspection</span>
-                      <p className="font-medium text-gray-900">{formatDate(inspection.nextInspectionDate)}</p>
-                    </div>
-                  )}
                 </div>
 
                 {inspection.observations && (
@@ -369,15 +446,21 @@ export default function InspectionsManagement() {
                     <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
-                    <span className="text-sm text-gray-500">Inspector ID: {inspection.inspectorId}</span>
+                    <span className="text-sm text-gray-500">Inspector: {inspection.inspectorId}</span>
                   </div>
                   <div className="flex space-x-2">
-                    <button className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                      View Details
+                    <button
+                      onClick={() => openEditModal(inspection)}
+                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                    >
+                      Edit
                     </button>
-                    {canCreateInspections && (
-                      <button className="text-gray-600 hover:text-gray-800 text-sm font-medium">
-                        Edit
+                    {canManageInspections && (
+                      <button
+                        onClick={() => openDeleteDialog(inspection)}
+                        className="text-red-600 hover:text-red-800 text-sm font-medium"
+                      >
+                        Delete
                       </button>
                     )}
                   </div>
@@ -387,6 +470,196 @@ export default function InspectionsManagement() {
           ))}
         </div>
       )}
+
+      {/* Create Modal */}
+      <Modal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="Schedule New Inspection"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+            <input
+              type="text"
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              placeholder="Foundation Inspection"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Project</label>
+            <select
+              value={formData.projectId}
+              onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">Select Project</option>
+              {projects.map(project => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Inspection Date</label>
+              <input
+                type="date"
+                value={formData.inspectionDate}
+                onChange={(e) => setFormData({ ...formData, inspectionDate: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value as InspectionStatus })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                {INSPECTION_STATUSES.map(status => (
+                  <option key={status.value} value={status.value}>{status.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="Describe what will be inspected..."
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              onClick={() => setShowCreateModal(false)}
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCreate}
+              className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Schedule Inspection
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Modal */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        title="Edit Inspection"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+              <input
+                type="text"
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value as InspectionStatus })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                {INSPECTION_STATUSES.map(status => (
+                  <option key={status.value} value={status.value}>{status.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Inspection Date</label>
+              <input
+                type="date"
+                value={formData.inspectionDate}
+                onChange={(e) => setFormData({ ...formData, inspectionDate: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Compliance Status</label>
+              <select
+                value={formData.complianceStatus}
+                onChange={(e) => setFormData({ ...formData, complianceStatus: e.target.value as ComplianceStatus })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                {COMPLIANCE_STATUSES.map(status => (
+                  <option key={status.value} value={status.value}>{status.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Observations</label>
+            <textarea
+              value={formData.observations}
+              onChange={(e) => setFormData({ ...formData, observations: e.target.value })}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Recommendations</label>
+            <textarea
+              value={formData.recommendations}
+              onChange={(e) => setFormData({ ...formData, recommendations: e.target.value })}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              onClick={() => setShowEditModal(false)}
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleEdit}
+              className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showDeleteDialog}
+        onClose={() => setShowDeleteDialog(false)}
+        onConfirm={handleDelete}
+        title="Delete Inspection"
+        message={`Are you sure you want to delete inspection "${selectedInspection?.title}"? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+      />
     </div>
   );
 }

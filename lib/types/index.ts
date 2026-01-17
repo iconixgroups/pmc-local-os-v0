@@ -74,6 +74,7 @@ export interface Project {
   milestones: Milestone[];
   invoices: Invoice[];
   documents: DocumentReference[];
+  inspections?: Inspection[]; // Project-level inspections
   createdAt: Date;
   updatedAt: Date;
 }
@@ -120,6 +121,7 @@ export interface Milestone {
   completionPercentage: number;
   tasks: Task[];
   billCertifications: BillCertification[];
+  inspections?: Inspection[]; // Add inspections to milestone
   invoiceAmount?: number;
   actualStartDate?: Date;
   actualEndDate?: Date;
