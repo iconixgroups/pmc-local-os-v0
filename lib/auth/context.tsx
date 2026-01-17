@@ -77,17 +77,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const storedUser = localStorage.getItem('pmc_current_user');
         if (storedUser) {
           const userData = JSON.parse(storedUser);
-          // Validate user still exists
+          // Set user immediately from storage for faster UX
+          setUser(userData);
+          // Validate user still exists in database
           const existingUser = await localStorageManager.getUserById(userData.id);
           if (existingUser) {
             setUser(existingUser);
           } else {
             localStorage.removeItem('pmc_current_user');
+            setUser(null);
           }
         }
       } catch (error) {
         console.error('Auth check failed:', error);
         localStorage.removeItem('pmc_current_user');
+        setUser(null);
       }
     };
 
