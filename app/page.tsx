@@ -150,18 +150,39 @@ function AppContent() {
     );
   }
 
+  // If not authenticated, show login (always works)
   if (!isAuthenticated) {
     return <Login />;
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <Navigation currentPage={currentPage} onNavigate={handleNavigate} />
-      <main className="flex-1">
-        {renderCurrentPage()}
-      </main>
-    </div>
-  );
+  // Render the main app
+  try {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navigation currentPage={currentPage} onNavigate={handleNavigate} />
+        <main className="flex-1">
+          {renderCurrentPage()}
+        </main>
+      </div>
+    );
+  } catch (error) {
+    // Fallback if rendering fails
+    console.error('Page render error:', error);
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h2 className="text-2xl font-semibold text-gray-900">Something went wrong</h2>
+          <p className="text-gray-600 mt-2">Please refresh the page</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+    );
+  }
 }
 
 export default function Home() {
